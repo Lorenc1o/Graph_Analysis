@@ -99,7 +99,7 @@ def palla_algorithm_pytorch(graph, k, verbose=False):
         print("Clique overlap matrix:\n", clique_overlap_matrix.cpu().numpy())
 
     # Compute clique connectivity matrix
-    connectivity_condition = (clique_overlap_matrix >= (k-1)).int()
+    connectivity_condition = (clique_overlap_matrix >= (k-1)).float()
     # For diagonal elements where the overlap is the size of the clique, adjust for k
     for i in range(num_cliques):
         if clique_overlap_matrix[i, i] < k:
@@ -108,27 +108,36 @@ def palla_algorithm_pytorch(graph, k, verbose=False):
     if verbose:
         print("Clique connectivity matrix:\n", connectivity_condition.cpu().numpy())
 
-    # Merge cliques into communities based on connectivity
-    # This part is more challenging to vectorize and may require iteration or graph traversal algorithms
+    # We start with the reachibility matrix as the diagonal of the connectivity matrix
+    reachability_matrix = torch.diag(connectivity_condition.diagonal())
+    
+    # Incremental power matrix to add new paths
+    incremental_power_matrix = connectivity_condition.clone()
+
+    for _ in range(num_cliques - 1):  # In the worst case, the diameter is num_cliques - 1
+        reachability_matrix += incremental_power_matrix
+        # Compute the next power
+        incremental_power_matrix = torch.matmul(incremental_power_matrix, connectivity_condition)
+
+    # Threshold the reachability matrix to binary values: connected or not
+    reachability_matrix = (reachability_matrix > 0).float()
+
+    # Now, reachability_matrix indicates connected components (communities)
+    # Extract communities from the reachability matrix
     communities = []
-    visited = set()
+    visited = torch.zeros(num_cliques, dtype=torch.bool, device=device)
+
     for i in range(num_cliques):
-        if i not in visited:
-            community = set(cliques[i])
-            to_visit = [i]
-            while to_visit:
-                current = to_visit.pop()
-                visited.add(current)
-                neighbors = (connectivity_condition[current] > 0).nonzero(as_tuple=True)[0]
-                for neighbor in neighbors:
-                    if neighbor.item() not in visited:
-                        community = community.union(set(cliques[neighbor.item()]))
-                        to_visit.append(neighbor.item())
+        if not visited[i]:
+            # Find all cliques connected to i
+            connected_cliques = (reachability_matrix[i] > 0).nonzero(as_tuple=True)[0]
+            community = set()
+            for idx in connected_cliques:
+                visited[idx] = True
+                community = community.union(cliques[idx.item()])
             communities.append(community)
-
-    # Filter communities to ensure they meet the minimum size requirement
+    # Delete communities with less than k nodes
     communities = [community for community in communities if len(community) >= k]
-
     return communities
 
 def show_graph(graph):
@@ -223,3 +232,10 @@ if __name__ == '__main__':
     print("Time:", time.time() - time0)
     print(communities_torch)
     show_communities_side_by_side(graph3, communities_torch)
+
+    # Real example: ego-Facebook dataset from SNAP
+    # Read ../data/facebook/0.edges, 0.circles, 0.egofeat, 0.feat, 0.featnames
+    graph4 = nx.read_edgelist('data/facebook/0.edges')
+    time0 = time.time()
+    communities = palla_algorithm_pytorch(graph4, 4, verbose=True)
+    print("Time:", time.time() - time0)
