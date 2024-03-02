@@ -2,6 +2,8 @@ import networkx as nx
 import matplotlib.pyplot as plt
 import torch
 import time
+from community import community_louvain
+from torch_geometric.nn import GCNConv
 
 def show_matrix_from_dict(matrix_dict, size, name):
     matrix = [[0 for i in range(size)] for j in range(size)]
@@ -13,7 +15,9 @@ def show_matrix_from_dict(matrix_dict, size, name):
     for row in matrix:
         print(row)
 
-
+'''
+PALLA algorithm
+'''
 def palla_algorithm(graph, k, verbose=False):
     # 1. Find all maximal cliques in G
     cliques = list(nx.find_cliques(graph))
@@ -72,6 +76,15 @@ def palla_algorithm(graph, k, verbose=False):
 
     return communities
 
+
+'''
+PALLA algorithm using PyTorch
+
+This implementation uses PyTorch to compute the clique overlap matrix, clique connectivity matrix, and reachability matrix.
+The algorithm is the same as the original PALLA algorithm, but the matrix operations are performed using PyTorch tensors.
+
+Much more efficient than the original implementation, especially for large graphs.
+'''
 def palla_algorithm_pytorch(graph, k, verbose=False):
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
@@ -197,6 +210,20 @@ def show_communities_side_by_side(graph, communities):
     plt.tight_layout()
     plt.show()
 
+# Graph AutoEncoder
+class GAE(torch.nn.Module):
+    def __init__(self, in_channels, out_channels):
+        super(GAE, self).__init__()
+        self.encoder = GCNConv(in_channels, out_channels, cached=True)
+        self.decoder = torch.nn.Linear(out_channels, in_channels, bias=False)
+    
+    def forward(self, x, edge_index):
+        z = self.encoder(x, edge_index)
+        z = torch.relu(z)
+        adj_logits = self.decoder(z)
+        adj_logits = torch.softmax(adj_logits, dim=1)
+        return adj_logits
+
 if __name__ == '__main__':
     #graph = nx.Graph()
     # Example 1: 1 community of size 4
@@ -239,3 +266,12 @@ if __name__ == '__main__':
     time0 = time.time()
     communities = palla_algorithm_pytorch(graph4, 4, verbose=True)
     print("Time:", time.time() - time0)
+
+    # Louvain algorithm
+    time0 = time.time()
+    partition = community_louvain.best_partition(graph4)
+    print("Time:", time.time() - time0)
+
+    modularity_palla = community_louvain.modularity({i: list(community) for i, community in enumerate(communities)}, graph4)
+    print("Modularity Palla:", modularity_palla)
+    print("Modularity Louvain:", community_louvain.modularity(partition, graph4))
