@@ -3,7 +3,6 @@ import matplotlib.pyplot as plt
 import torch
 import time
 from community import community_louvain
-from torch_geometric.nn import GCNConv
 
 def show_matrix_from_dict(matrix_dict, size, name):
     matrix = [[0 for i in range(size)] for j in range(size)]
@@ -154,7 +153,8 @@ def palla_algorithm_pytorch(graph, k, verbose=False):
     return communities
 
 def show_graph(graph):
-    nx.draw(graph, with_labels=True, font_weight='bold')
+    pos = nx.spring_layout(graph, seed=42)
+    nx.draw(graph, pos, with_labels=True, font_weight='bold')
     plt.show()
 
 def show_communities(graph, communities):
@@ -190,7 +190,7 @@ def show_communities_side_by_side(graph, communities):
     base_color_map = {node: 'lightgray' for node in graph.nodes()}
 
     # Compute node positions using a layout algorithm with a fixed seed for consistency
-    pos = nx.spring_layout(graph, seed=42)  # You can change the layout algorithm if needed
+    pos = nx.spring_layout(graph, seed=42) 
 
     num_communities = len(communities)
     fig, axes = plt.subplots(1, num_communities, figsize=(num_communities * 5, 5))
@@ -209,20 +209,6 @@ def show_communities_side_by_side(graph, communities):
     
     plt.tight_layout()
     plt.show()
-
-# Graph AutoEncoder
-class GAE(torch.nn.Module):
-    def __init__(self, in_channels, out_channels):
-        super(GAE, self).__init__()
-        self.encoder = GCNConv(in_channels, out_channels, cached=True)
-        self.decoder = torch.nn.Linear(out_channels, in_channels, bias=False)
-    
-    def forward(self, x, edge_index):
-        z = self.encoder(x, edge_index)
-        z = torch.relu(z)
-        adj_logits = self.decoder(z)
-        adj_logits = torch.softmax(adj_logits, dim=1)
-        return adj_logits
 
 if __name__ == '__main__':
     #graph = nx.Graph()
@@ -250,12 +236,12 @@ if __name__ == '__main__':
     graph3.add_edges_from([(1, 2), (1, 3), (1, 4), (2, 3), (2, 4), (2, 9), (2, 10), (3, 4), (3, 5), (3, 6), (4, 5), (4, 6), (4, 7), (4, 9), (4, 8), (5, 6), (5, 7), (5, 9), (6, 7), (6, 9), (7, 9), (7, 8), (8, 9), (9, 10)])
     show_graph(graph3)
     time0 = time.time()
-    communities = palla_algorithm(graph3, 4, verbose=True)
+    communities = palla_algorithm(graph3, 4)
     print("Time:", time.time() - time0)
     print(communities)
     show_communities_side_by_side(graph3, communities)
     time0 = time.time()
-    communities_torch = palla_algorithm_pytorch(graph3, 4, verbose=True)
+    communities_torch = palla_algorithm_pytorch(graph3, 4)
     print("Time:", time.time() - time0)
     print(communities_torch)
     show_communities_side_by_side(graph3, communities_torch)
@@ -264,14 +250,20 @@ if __name__ == '__main__':
     # Read ../data/facebook/0.edges, 0.circles, 0.egofeat, 0.feat, 0.featnames
     graph4 = nx.read_edgelist('data/facebook/0.edges')
     time0 = time.time()
-    communities = palla_algorithm_pytorch(graph4, 4, verbose=True)
+    communities = palla_algorithm_pytorch(graph4, 4)
     print("Time:", time.time() - time0)
+    assignation = {node: -1 for node in graph4.nodes()}
+    for i, community in enumerate(communities):
+        for node in community:
+            assignation[node] = i
+
+    print(assignation)
 
     # Louvain algorithm
     time0 = time.time()
     partition = community_louvain.best_partition(graph4)
     print("Time:", time.time() - time0)
 
-    modularity_palla = community_louvain.modularity({i: list(community) for i, community in enumerate(communities)}, graph4)
+    modularity_palla = community_louvain.modularity(assignation, graph4)
     print("Modularity Palla:", modularity_palla)
     print("Modularity Louvain:", community_louvain.modularity(partition, graph4))
